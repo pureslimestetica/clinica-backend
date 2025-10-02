@@ -14,10 +14,11 @@ export async function OPTIONS() {
   return NextResponse.json({}, { status: 200, headers });
 }
 
-// GET /api/patients?q=texto (lista pacientes)
+// GET /api/patients?q=texto
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const q = url.searchParams.get('q')?.trim() || '';
+
   let query = supabaseAdmin
     .from('patients')
     .select('*')
@@ -30,7 +31,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(data ?? [], { status: 200, headers });
 }
 
-// POST /api/patients (cria paciente)
+// POST /api/patients
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -49,6 +50,6 @@ export async function POST(req: NextRequest) {
     if (error) return NextResponse.json({ error: error.message }, { status: 400, headers });
     return NextResponse.json(data, { status: 200, headers });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500, headers });
+    return NextResponse.json({ error: e.message || 'Erro' }, { status: 500, headers });
   }
 }
