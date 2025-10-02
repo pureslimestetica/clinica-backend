@@ -18,8 +18,7 @@ export async function PATCH(
 
     const toNull = (v: any) =>
       v === undefined || v === null || (typeof v === 'string' && v.trim() === '')
-        ? null
-        : v;
+        ? null : v;
 
     const toNumberOrNull = (v: any) => {
       if (v === undefined || v === null || String(v).trim() === '') return null;
