@@ -1,51 +1,68 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
+import supabaseAdmin from '../../../../lib/supabaseAdmin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const headers = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'PATCH,DELETE,OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-};
-
+// Preflight (CORS)
 export async function OPTIONS() {
-  return NextResponse.json({}, { status: 200, headers });
+  return NextResponse.json({}, { status: 200 });
 }
 
 // PATCH /api/assets/:id
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
-    const body = await req.json();
-    const payload = {
-      name: body.name ?? null,
-      lab: body.lab ?? null,
-      quantity: body.quantity === '' || body.quantity === undefined ? null : Number(body.quantity),
-      unit: body.unit ?? null,
+    const id = params.id;
+    const body = await req.json().catch(() => ({}));
+
+    const toNull = (v: any) =>
+      v === undefined || v === null || (typeof v === 'string' && v.trim() === '')
+        ? null
+        : v;
+
+    const toNumberOrNull = (v: any) => {
+      if (v === undefined || v === null || String(v).trim() === '') return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+
+    const payload: any = {
+      name: toNull(body.name),
+      lab: toNull(body.lab),
+      quantity: toNumberOrNull(body.quantity),
+      unit: toNull(body.unit),
     };
 
     const { data, error } = await supabaseAdmin
       .from('assets')
       .update(payload)
-      .eq('id', params.id)
-      .select()
+      .eq('id', id)
+      .select('*')
       .single();
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 400, headers });
-    return NextResponse.json(data, { status: 200, headers });
+    if (error) throw error;
+    return NextResponse.json(data, { status: 200 });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message || 'Erro' }, { status: 500, headers });
+    return NextResponse.json({ error: e?.message ?? 'Erro' }, { status: 500 });
   }
 }
 
 // DELETE /api/assets/:id
-export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
-    const { error } = await supabaseAdmin.from('assets').delete().eq('id', params.id);
-    if (error) return NextResponse.json({ error: error.message }, { status: 400, headers });
-    return new NextResponse(null, { status: 204, headers });
+    const id = params.id;
+
+    const { error } = await supabaseAdmin.from('assets').delete().eq('id', id);
+    if (error) throw error;
+
+    return NextResponse.json({ ok: true }, { status: 200 });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message || 'Erro' }, { status: 500, headers });
+    return NextResponse.json({ error: e?.message ?? 'Erro' }, { status: 500 });
   }
 }
