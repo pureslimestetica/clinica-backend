@@ -7,48 +7,55 @@ export const dynamic = 'force-dynamic'
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET,PATCH,DELETE,OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, Accept',
+}
+
+function corsJson(data: any, init?: ResponseInit) {
+  return NextResponse.json(data, { ...(init ?? {}), headers: { ...(init?.headers ?? {}), ...CORS } })
 }
 
 export async function OPTIONS() {
-  return NextResponse.json({}, { headers: CORS })
+  return new Response(null, { status: 204, headers: CORS })
+}
+
+async function readBody(req: NextRequest) {
+  const ct = req.headers.get('content-type') || ''
+  try {
+    if (ct.includes('application/json')) return await req.json()
+    const form = await req.formData()
+    return Object.fromEntries(form.entries())
+  } catch {
+    return {}
+  }
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const id = params.id
-    const body = await req.json()
+    const body: any = await readBody(req)
 
     const patch: any = {}
     if ('name' in body) patch.name = body.name ?? null
     if ('lab' in body) patch.lab = body.lab ?? null
     if ('quantity' in body) {
-      patch.quantity = body.quantity === null || body.quantity === undefined ? null : Number(body.quantity)
+      patch.quantity =
+        body.quantity === '' || body.quantity === undefined || body.quantity === null
+          ? null
+          : Number(body.quantity)
     }
     if ('unit' in body) patch.unit = body.unit ?? null
 
-    const { data, error } = await supabaseAdmin
-      .from('assets')
-      .update(patch)
-      .eq('id', id)
-      .select()
-      .single()
+    const { data, error } = await supabaseAdmin.from('assets').update(patch).eq('id', id).select().single()
+    if (error) return corsJson({ error: error.message }, { status: 400 })
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400, headers: CORS })
-    }
-    return NextResponse.json(data, { headers: CORS })
-  } catch (e: any) {
-    return NextResponse.json({ error: 'Bad Request' }, { status: 400, headers: CORS })
+    return corsJson(data)
+  } catch {
+    return corsJson({ error: 'Bad Request' }, { status: 400 })
   }
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
-  const id = params.id
-  const { error } = await supabaseAdmin.from('assets').delete().eq('id', id)
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400, headers: CORS })
-  }
-  return NextResponse.json({ ok: true }, { headers: CORS })
+  const { error } = await supabaseAdmin.from('assets').delete().eq('id', params.id)
+  if (error) return corsJson({ error: error.message }, { status: 400 })
+  return corsJson({ ok: true })
 }
