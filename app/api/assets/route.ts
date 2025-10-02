@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import supabaseAdmin from '../../../lib/supabaseAdmin';
+import { supabaseAdmin } from '../../../lib/supabaseAdmin'; // <- named import
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -21,7 +21,6 @@ export async function GET(req: NextRequest) {
       .order('created_at', { ascending: false });
 
     if (q) {
-      // busca por nome ou lab
       query = query.or(`name.ilike.%${q}%,lab.ilike.%${q}%`);
     }
 
