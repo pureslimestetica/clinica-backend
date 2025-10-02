@@ -1,15 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin } from '../../../lib/supabaseAdmin'; // <- named import
+import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// Preflight (CORS)
 export async function OPTIONS() {
   return NextResponse.json({}, { status: 200 });
 }
 
-// GET /api/assets?q=...
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -32,7 +30,6 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST /api/assets  { name, lab, quantity, unit }
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
