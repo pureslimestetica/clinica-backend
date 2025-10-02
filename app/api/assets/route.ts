@@ -7,47 +7,66 @@ export const dynamic = 'force-dynamic'
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, Accept',
+}
+
+function corsJson(data: any, init?: ResponseInit) {
+  return NextResponse.json(data, { ...(init ?? {}), headers: { ...(init?.headers ?? {}), ...CORS } })
 }
 
 export async function OPTIONS() {
-  return NextResponse.json({}, { headers: CORS })
+  return new Response(null, { status: 204, headers: CORS })
 }
 
 export async function GET() {
   const { data, error } = await supabaseAdmin
     .from('assets')
     .select('*')
-    .order('created_at', { ascending: false })
+  if (error) return corsJson({ error: error.message }, { status: 500 })
+  return corsJson(data ?? [])
+}
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500, headers: CORS })
+async function readBody(req: NextRequest) {
+  const ct = req.headers.get('content-type') || ''
+  try {
+    if (ct.includes('application/json')) {
+      return await req.json()
+    }
+    if (ct.includes('application/x-www-form-urlencoded') || ct.includes('multipart/form-data')) {
+      const form = await req.formData()
+      return Object.fromEntries(form.entries())
+    }
+    // tentativa final
+    return await req.json()
+  } catch {
+    try {
+      const form = await req.formData()
+      return Object.fromEntries(form.entries())
+    } catch {
+      return {}
+    }
   }
-
-  return NextResponse.json(data ?? [], { headers: CORS })
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json()
+    const body: any = await readBody(req)
+
     const row = {
       name: body?.name ?? null,
       lab: body?.lab ?? null,
-      quantity: body?.quantity === null || body?.quantity === undefined ? null : Number(body.quantity),
+      quantity:
+        body?.quantity === '' || body?.quantity === undefined || body?.quantity === null
+          ? null
+          : Number(body.quantity),
       unit: body?.unit ?? null,
     }
 
-    const { data, error } = await supabaseAdmin
-      .from('assets')
-      .insert(row)
-      .select()
-      .single()
+    const { data, error } = await supabaseAdmin.from('assets').insert(row).select().single()
+    if (error) return corsJson({ error: error.message }, { status: 400 })
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400, headers: CORS })
-    }
-    return NextResponse.json(data, { status: 201, headers: CORS })
-  } catch (e: any) {
-    return NextResponse.json({ error: 'Bad Request' }, { status: 400, headers: CORS })
+    return corsJson(data, { status: 201 })
+  } catch {
+    return corsJson({ error: 'Bad Request' }, { status: 400 })
   }
 }
