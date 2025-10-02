@@ -19,54 +19,54 @@ export async function OPTIONS() {
 }
 
 export async function GET() {
-  const { data, error } = await supabaseAdmin
-    .from('assets')
-    .select('*')
-  if (error) return corsJson({ error: error.message }, { status: 500 })
+  const { data, error } = await supabaseAdmin.from('assets').select('*')
+  if (error) return corsJson({ error: error.message, code: 'DB_SELECT' }, { status: 500 })
   return corsJson(data ?? [])
 }
 
 async function readBody(req: NextRequest) {
   const ct = req.headers.get('content-type') || ''
   try {
-    if (ct.includes('application/json')) {
-      return await req.json()
-    }
-    if (ct.includes('application/x-www-form-urlencoded') || ct.includes('multipart/form-data')) {
-      const form = await req.formData()
-      return Object.fromEntries(form.entries())
-    }
-    // tentativa final
-    return await req.json()
-  } catch {
-    try {
-      const form = await req.formData()
-      return Object.fromEntries(form.entries())
-    } catch {
-      return {}
-    }
-  }
+    if (ct.includes('application/json')) return await req.json()
+  } catch {}
+  try {
+    const form = await req.formData()
+    return Object.fromEntries(form.entries())
+  } catch {}
+  return {}
+}
+
+function toNumberOrNull(v: any) {
+  if (v === undefined || v === null || v === '') return null
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const body: any = await readBody(req)
+    const b: any = await readBody(req)
 
-    const row = {
-      name: body?.name ?? null,
-      lab: body?.lab ?? null,
-      quantity:
-        body?.quantity === '' || body?.quantity === undefined || body?.quantity === null
-          ? null
-          : Number(body.quantity),
-      unit: body?.unit ?? null,
+    // aceita "nome/laboratorio/quantidade/unidade" e/ou "name/lab/quantity/unit"
+    const payload = {
+      name: (b.name ?? b.nome ?? '').toString() || null,
+      lab: (b.lab ?? b.laboratorio ?? '').toString() || null,
+      quantity: toNumberOrNull(b.quantity ?? b.quantidade),
+      unit: (b.unit ?? b.unidade ?? '').toString() || null,
     }
 
-    const { data, error } = await supabaseAdmin.from('assets').insert(row).select().single()
-    if (error) return corsJson({ error: error.message }, { status: 400 })
+    const { data, error } = await supabaseAdmin
+      .from('assets')
+      .insert(payload)
+      .select()
+      .single()
+
+    if (error) {
+      // devolve o erro do banco p/ aparecer no alerta
+      return corsJson({ error: error.message, code: 'DB_INSERT', payload }, { status: 400 })
+    }
 
     return corsJson(data, { status: 201 })
-  } catch {
-    return corsJson({ error: 'Bad Request' }, { status: 400 })
+  } catch (e: any) {
+    return corsJson({ error: e?.message || 'Bad Request', code: 'UNEXPECTED' }, { status: 400 })
   }
 }
