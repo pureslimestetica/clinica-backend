@@ -1,15 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 
-export const runtime = 'nodejs'; // garantir Node runtime
+export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// Pré-flight CORS
+const headers = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
+
 export async function OPTIONS() {
-  return NextResponse.json({}, { status: 200 });
+  return NextResponse.json({}, { status: 200, headers });
 }
 
-// POST /api/patients  { full_name?, age?, birth_date?, contact?, email? }
+// GET /api/patients?q=texto (lista pacientes)
+export async function GET(req: NextRequest) {
+  const url = new URL(req.url);
+  const q = url.searchParams.get('q')?.trim() || '';
+  let query = supabaseAdmin
+    .from('patients')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (q) query = query.ilike('full_name', `%${q}%`);
+
+  const { data, error } = await query;
+  if (error) return NextResponse.json({ error: error.message }, { status: 400, headers });
+  return NextResponse.json(data ?? [], { status: 200, headers });
+}
+
+// POST /api/patients (cria paciente)
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -20,34 +41,14 @@ export async function POST(req: NextRequest) {
         age: body.age ?? null,
         birth_date: body.birth_date ?? null,
         contact: body.contact ?? null,
-        email: body.email ?? null
+        email: body.email ?? null,
       })
       .select()
       .single();
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-    return NextResponse.json(data);
+    if (error) return NextResponse.json({ error: error.message }, { status: 400, headers });
+    return NextResponse.json(data, { status: 200, headers });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
-  }
-}
-
-// GET /api/patients?q=nome
-export async function GET(req: NextRequest) {
-  try {
-    const q = new URL(req.url).searchParams.get('q') || '';
-    const query = supabaseAdmin
-      .from('patients')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    const { data, error } = q
-      ? await query.ilike('full_name', `%${q}%`)
-      : await query;
-
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-    return NextResponse.json(data);
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    return NextResponse.json({ error: e.message }, { status: 500, headers });
   }
 }
