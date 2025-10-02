@@ -1,15 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin } from '../../../../lib/supabaseAdmin'; // <- named import
+import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// Preflight (CORS)
 export async function OPTIONS() {
   return NextResponse.json({}, { status: 200 });
 }
 
-// PATCH /api/assets/:id
 export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } }
@@ -50,17 +48,14 @@ export async function PATCH(
   }
 }
 
-// DELETE /api/assets/:id
 export async function DELETE(
   _req: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
     const id = params.id;
-
     const { error } = await supabaseAdmin.from('assets').delete().eq('id', id);
     if (error) throw error;
-
     return NextResponse.json({ ok: true }, { status: 200 });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message ?? 'Erro' }, { status: 500 });
