@@ -1,72 +1,61 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { NextRequest, NextResponse } from 'next/server';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
-export const runtime = 'nodejs'
-export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
-const CORS = {
-  'Access-Control-Allow-Origin': '*',
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*', // se quiser travar, troque por https://clinicapureslim.com.br
   'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Accept',
-}
-
-function corsJson(data: any, init?: ResponseInit) {
-  return NextResponse.json(data, { ...(init ?? {}), headers: { ...(init?.headers ?? {}), ...CORS } })
-}
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
+};
 
 export async function OPTIONS() {
-  return new Response(null, { status: 204, headers: CORS })
+  return new NextResponse(null, { status: 204, headers: corsHeaders });
 }
 
 export async function GET() {
-  const { data, error } = await supabaseAdmin.from('assets').select('*')
-  if (error) return corsJson({ error: error.message, code: 'DB_SELECT' }, { status: 500 })
-  return corsJson(data ?? [])
-}
+  const { data, error } = await supabaseAdmin
+    .from('assets')
+    .select('*')
+    .order('created_at', { ascending: false });
 
-async function readBody(req: NextRequest) {
-  const ct = req.headers.get('content-type') || ''
-  try {
-    if (ct.includes('application/json')) return await req.json()
-  } catch {}
-  try {
-    const form = await req.formData()
-    return Object.fromEntries(form.entries())
-  } catch {}
-  return {}
-}
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500, headers: corsHeaders });
+  }
 
-function toNumberOrNull(v: any) {
-  if (v === undefined || v === null || v === '') return null
-  const n = Number(v)
-  return Number.isFinite(n) ? n : null
+  return NextResponse.json(data ?? [], { status: 200, headers: corsHeaders });
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const b: any = await readBody(req)
+    const body = await req.json();
+    const name = body?.name ?? null;
+    const lab = body?.lab ?? null;
+    const unit = body?.unit ?? null;
 
-    // aceita "nome/laboratorio/quantidade/unidade" e/ou "name/lab/quantity/unit"
-    const payload = {
-      name: (b.name ?? b.nome ?? '').toString() || null,
-      lab: (b.lab ?? b.laboratorio ?? '').toString() || null,
-      quantity: toNumberOrNull(b.quantity ?? b.quantidade),
-      unit: (b.unit ?? b.unidade ?? '').toString() || null,
-    }
+    const qtyParsed =
+      body?.quantity === '' || body?.quantity === null || body?.quantity === undefined
+        ? null
+        : Number(body.quantity);
 
     const { data, error } = await supabaseAdmin
       .from('assets')
-      .insert(payload)
+      .insert({
+        name,
+        lab,
+        quantity: qtyParsed,
+        unit,
+      })
       .select()
-      .single()
+      .single();
 
     if (error) {
-      // devolve o erro do banco p/ aparecer no alerta
-      return corsJson({ error: error.message, code: 'DB_INSERT', payload }, { status: 400 })
+      return NextResponse.json({ error: error.message }, { status: 400, headers: corsHeaders });
     }
 
-    return corsJson(data, { status: 201 })
+    return NextResponse.json(data, { status: 201, headers: corsHeaders });
   } catch (e: any) {
-    return corsJson({ error: e?.message || 'Bad Request', code: 'UNEXPECTED' }, { status: 400 })
+    return NextResponse.json({ error: e?.message ?? 'unknown' }, { status: 500, headers: corsHeaders });
   }
 }
