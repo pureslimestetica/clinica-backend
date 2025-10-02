@@ -18,9 +18,7 @@ export async function GET(req: NextRequest) {
       .select('*')
       .order('created_at', { ascending: false });
 
-    if (q) {
-      query = query.or(`name.ilike.%${q}%,lab.ilike.%${q}%`);
-    }
+    if (q) query = query.or(`name.ilike.%${q}%,lab.ilike.%${q}%`);
 
     const { data, error } = await query;
     if (error) throw error;
@@ -36,8 +34,7 @@ export async function POST(req: NextRequest) {
 
     const toNull = (v: any) =>
       v === undefined || v === null || (typeof v === 'string' && v.trim() === '')
-        ? null
-        : v;
+        ? null : v;
 
     const toNumberOrNull = (v: any) => {
       if (v === undefined || v === null || String(v).trim() === '') return null;
