@@ -1,63 +1,53 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin } from '../../../lib/supabaseAdmin';
+import { NextRequest, NextResponse } from 'next/server'
+import { supabaseAdmin } from '@/lib/supabaseAdmin'
 
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
 
-export async function OPTIONS() {
-  return NextResponse.json({}, { status: 200 });
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
 }
 
-export async function GET(req: NextRequest) {
-  try {
-    const { searchParams } = new URL(req.url);
-    const q = searchParams.get('q')?.trim() ?? '';
+export async function OPTIONS() {
+  return NextResponse.json({}, { headers: CORS })
+}
 
-    let query = supabaseAdmin
-      .from('assets')
-      .select('*')
-      .order('created_at', { ascending: false });
+export async function GET() {
+  const { data, error } = await supabaseAdmin
+    .from('assets')
+    .select('*')
+    .order('created_at', { ascending: false })
 
-    if (q) query = query.or(`name.ilike.%${q}%,lab.ilike.%${q}%`);
-
-    const { data, error } = await query;
-    if (error) throw error;
-    return NextResponse.json(data ?? [], { status: 200 });
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? 'Erro' }, { status: 500 });
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500, headers: CORS })
   }
+
+  return NextResponse.json(data ?? [], { headers: CORS })
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json().catch(() => ({}));
-
-    const toNull = (v: any) =>
-      v === undefined || v === null || (typeof v === 'string' && v.trim() === '')
-        ? null : v;
-
-    const toNumberOrNull = (v: any) => {
-      if (v === undefined || v === null || String(v).trim() === '') return null;
-      const n = Number(v);
-      return Number.isFinite(n) ? n : null;
-    };
-
-    const payload = {
-      name: toNull(body.name),
-      lab: toNull(body.lab),
-      quantity: toNumberOrNull(body.quantity),
-      unit: toNull(body.unit),
-    };
+    const body = await req.json()
+    const row = {
+      name: body?.name ?? null,
+      lab: body?.lab ?? null,
+      quantity: body?.quantity === null || body?.quantity === undefined ? null : Number(body.quantity),
+      unit: body?.unit ?? null,
+    }
 
     const { data, error } = await supabaseAdmin
       .from('assets')
-      .insert(payload)
-      .select('*')
-      .single();
+      .insert(row)
+      .select()
+      .single()
 
-    if (error) throw error;
-    return NextResponse.json(data, { status: 200 });
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400, headers: CORS })
+    }
+    return NextResponse.json(data, { status: 201, headers: CORS })
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? 'Erro' }, { status: 500 });
+    return NextResponse.json({ error: 'Bad Request' }, { status: 400, headers: CORS })
   }
 }
