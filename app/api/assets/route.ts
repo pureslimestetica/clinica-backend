@@ -1,97 +1,110 @@
+// app/api/assets/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
-// ajuste se quiser ler de variável:
-// const ORIGIN = process.env.CORS_ORIGIN ?? 'https://clinicapureslim.com.br';
-const ORIGIN = 'https://clinicapureslim.com.br';
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': ORIGIN,
-  'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-};
-
-function withCORS<T>(data: T, status = 200) {
-  return new NextResponse(JSON.stringify(data), {
-    status,
-    headers: {
-      'Content-Type': 'application/json',
-      ...corsHeaders,
-    },
-  });
+// CORS simples
+function cors() {
+  const h = new Headers();
+  h.set('Access-Control-Allow-Origin', 'https://clinicapureslim.com.br');
+  h.set('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  h.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  return h;
 }
 
-export function OPTIONS() {
-  return new NextResponse(null, { headers: corsHeaders });
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204, headers: cors() });
 }
 
-// Normaliza "1ml", "2ml", "5ml", "10ml" -> "ml"
-// (se vier "mg" ou "un", mantém; pode expandir se precisar)
-function normalizeUnit(input?: string | null): 'ml' | 'mg' | 'un' | null {
-  if (!input) return null;
-  const val = String(input).trim().toLowerCase();
-  // bate "2ml", "10ml", "ml" etc.
-  const m = val.match(/^(\d+)?\s*(ml|mg|un)$/i);
-  if (m) {
-    const unit = m[2].toLowerCase();
-    if (unit === 'ml' || unit === 'mg' || unit === 'un') return unit as 'ml' | 'mg' | 'un';
-  }
-  // fallback: se contiver "ml", grava ml
-  if (val.includes('ml')) return 'ml';
-  if (val.includes('mg')) return 'mg';
-  if (val.includes('un')) return 'un';
-  return null;
+// Normaliza unidade -> '1ml' | '2ml' | '5ml' | '10ml'
+function sanitizeUnit(v: unknown): '1ml' | '2ml' | '5ml' | '10ml' {
+  const map = new Set(['1ml', '2ml', '5ml', '10ml']);
+  const s = String(v ?? '').toLowerCase().replace(/\s+/g, '');
+  return (map.has(s) ? (s as any) : '1ml');
 }
 
-/**
- * GET /api/assets
- * Lista os ativos: id, name, laboratory, quantity, unit
- */
+// GET /api/assets  -> lista
 export async function GET() {
   try {
     const { data, error } = await supabaseAdmin
       .from('assets')
-      .select('id, name, laboratory, quantity, unit')
-      .order('created_at', { ascending: false });
+      // Lê unit como COALESCE(unit2, unit)
+      .select(`
+        id,
+        name,
+        quantity,
+        laboratory,
+        unit2,
+        unit
+      `)
+      .order('id', { ascending: false });
 
     if (error) throw error;
-    return withCORS({ items: data ?? [] });
+
+    const list = (data ?? []).map((row: any) => ({
+      id: row.id,
+      name: row.name ?? '',
+      quantity: row.quantity ?? 0,
+      laboratory: row.laboratory ?? '',
+      unit: (row.unit2 ?? row.unit ?? '1ml') as string,
+    }));
+
+    return NextResponse.json(list, { headers: cors() });
   } catch (e: any) {
-    return withCORS({ error: e?.message || 'failed' }, 500);
+    return NextResponse.json(
+      { error: e?.message ?? 'Erro ao listar' },
+      { status: 400, headers: cors() }
+    );
   }
 }
 
-/**
- * POST /api/assets
- * Body JSON: { name: string, laboratory: string, quantity: number, unit: "1ml" | "2ml" | "5ml" | "10ml" | "ml" | "mg" | "un" }
- * Salva normalizando unit para "ml" | "mg" | "un" (CHECK da tabela).
- */
+// POST /api/assets  -> cria
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json().catch(() => ({}));
-    const name = (body?.name ?? '').toString().trim();
-    const laboratory = (body?.laboratory ?? '').toString().trim();
-    const quantity = Number(body?.quantity);
-    const unitNorm = normalizeUnit(body?.unit);
+    const body = await req.json();
 
-    if (!name) return withCORS({ error: 'name required' }, 400);
-    if (!laboratory) return withCORS({ error: 'laboratory required' }, 400);
-    if (!Number.isFinite(quantity) || quantity <= 0) return withCORS({ error: 'quantity invalid' }, 400);
+    const name = String(body?.name ?? '').trim();
+    const laboratory = String(body?.laboratory ?? '').trim();
+    const quantity = Number(body?.quantity ?? 0) || 0;
+    const unit = sanitizeUnit(body?.unit);
 
-    // se não deu pra normalizar, força "ml" (alinha com o CHECK da tabela)
-    const unit = unitNorm ?? 'ml';
+    if (!name) {
+      return NextResponse.json(
+        { error: 'Nome é obrigatório' },
+        { status: 400, headers: cors() }
+      );
+    }
+
+    const payload = {
+      name,
+      laboratory,
+      quantity,
+      unit2: unit, // <— grava SOMENTE em unit2
+    };
 
     const { data, error } = await supabaseAdmin
       .from('assets')
-      .insert([{ name, laboratory, quantity, unit }])
-      .select('id')
+      .insert([payload])
+      .select('id, name, quantity, laboratory, unit2')
       .single();
 
     if (error) throw error;
-    return withCORS({ id: data?.id }, 201);
+
+    const created = {
+      id: data.id,
+      name: data.name,
+      quantity: data.quantity,
+      laboratory: data.laboratory,
+      unit: data.unit2, // resposta consistente com o front
+    };
+
+    return NextResponse.json(created, { status: 201, headers: cors() });
   } catch (e: any) {
-    return withCORS({ error: e?.message || 'failed' }, 400);
+    return NextResponse.json(
+      { error: e?.message ?? 'Erro ao salvar' },
+      { status: 400, headers: cors() }
+    );
   }
 }
