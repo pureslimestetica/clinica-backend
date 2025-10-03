@@ -24,7 +24,6 @@ export async function OPTIONS(req: Request) {
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// GET /api/assets  -> lista ativos
 export async function GET(req: NextRequest) {
   const headers = cors(req);
   const { data, error } = await supabaseAdmin
@@ -38,7 +37,6 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(data || [], { status: 200, headers });
 }
 
-// POST /api/assets  -> cria ativo
 export async function POST(req: NextRequest) {
   const headers = cors(req);
   try {
@@ -59,7 +57,6 @@ export async function POST(req: NextRequest) {
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400, headers });
     }
-
     return NextResponse.json(data, { status: 201, headers });
   } catch (e: any) {
     return NextResponse.json(
