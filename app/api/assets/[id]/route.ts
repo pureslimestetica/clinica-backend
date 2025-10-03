@@ -24,7 +24,6 @@ export async function OPTIONS(req: Request) {
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// PATCH /api/assets/:id  -> edita ativo
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const headers = cors(req);
   try {
@@ -54,11 +53,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
 }
 
-// DELETE /api/assets/:id  -> exclui ativo
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   const headers = cors(req);
   const { error } = await supabaseAdmin.from('assets').delete().eq('id', params.id);
-
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400, headers });
   }
