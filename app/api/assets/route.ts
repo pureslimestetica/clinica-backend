@@ -1,67 +1,86 @@
+// app/api/assets/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import supabaseAdmin from '@/lib/supabaseAdmin';
-
-function cors(req: Request) {
-  const origin = req.headers.get('origin') || '';
-  const allowed = new Set([
-    'https://clinicapureslim.com.br',
-    'https://www.clinicapureslim.com.br',
-  ]);
-  const allow = allowed.has(origin) ? origin : 'https://clinicapureslim.com.br';
-
-  return {
-    'Access-Control-Allow-Origin': allow,
-    'Vary': 'Origin',
-    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
-  };
-}
-
-export async function OPTIONS(req: Request) {
-  return new NextResponse(null, { status: 204, headers: cors(req) });
-}
+import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function GET(req: NextRequest) {
-  const headers = cors(req);
-  const { data, error } = await supabaseAdmin
-    .from('assets')
-    .select('*')
-    .order('created_at', { ascending: false });
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400, headers });
-  }
-  return NextResponse.json(data || [], { status: 200, headers });
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204, headers: CORS });
 }
 
-export async function POST(req: NextRequest) {
-  const headers = cors(req);
+// Normaliza qualquer coisa digitada em "unit" para um dos valores aceitos no banco
+function normalizeUnit(raw?: string): 'ml' | 'mg' | 'un' {
+  const s = (raw ?? '').toLowerCase().replace(/\s+/g, '');
+  if (s.includes('ml')) return 'ml';
+  if (s.includes('mg')) return 'mg';
+  // aceita várias variações de "unidade"
+  if (['un', 'uni', 'und', 'unid', 'unidade', 'unidades'].some(k => s.includes(k))) return 'un';
+  // padrão
+  return 'ml';
+}
+
+/**
+ * GET /api/assets
+ * Lista todos os ativos (ajuste conforme sua necessidade / filtros)
+ */
+export async function GET() {
   try {
-    const body = await req.json();
-    const payload = {
-      name: body?.name ?? null,
-      lab: body?.lab ?? null,
-      quantity: body?.quantity ?? null,
-      unit: body?.unit ?? null,
-    };
+    const { data, error } = await supabaseAdmin
+      .from('assets')
+      .select('id, name, laboratory, quantity, unit, created_at')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400, headers: CORS });
+    }
+    return NextResponse.json({ items: data ?? [] }, { status: 200, headers: CORS });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message ?? 'GET failed' }, { status: 500, headers: CORS });
+  }
+}
+
+/**
+ * POST /api/assets
+ * Body JSON: { name: string, laboratory: string, quantity: number, unit: string }
+ * Ex.: unit pode vir "2 ml", "2ml", "ml", "mg", "un" etc — será normalizado.
+ */
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json().catch(() => ({}));
+
+    const name = String(body?.name ?? '').trim();
+    const laboratory = String(body?.laboratory ?? '').trim();
+    const quantity = Number(body?.quantity ?? 0);
+    const unit = normalizeUnit(String(body?.unit ?? ''));
+
+    if (!name) {
+      return NextResponse.json({ error: 'Nome é obrigatório' }, { status: 400, headers: CORS });
+    }
+    if (!laboratory) {
+      return NextResponse.json({ error: 'Laboratório é obrigatório' }, { status: 400, headers: CORS });
+    }
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      return NextResponse.json({ error: 'Quantidade deve ser maior que zero' }, { status: 400, headers: CORS });
+    }
 
     const { data, error } = await supabaseAdmin
       .from('assets')
-      .insert(payload)
-      .select('*')
+      .insert({ name, laboratory, quantity, unit })
+      .select('id, name, laboratory, quantity, unit, created_at')
       .single();
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400, headers });
+      return NextResponse.json({ error: error.message }, { status: 400, headers: CORS });
     }
-    return NextResponse.json(data, { status: 201, headers });
+    return NextResponse.json({ item: data }, { status: 201, headers: CORS });
   } catch (e: any) {
-    return NextResponse.json(
-      { error: e?.message || 'Erro inesperado' },
-      { status: 500, headers }
-    );
+    return NextResponse.json({ error: e?.message ?? 'POST failed' }, { status: 500, headers: CORS });
   }
 }
