@@ -1,46 +1,44 @@
-// app/api/assets/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// CORS simples
+const CORS_ORIGIN = 'https://clinicapureslim.com.br';
 function cors() {
   const h = new Headers();
-  h.set('Access-Control-Allow-Origin', 'https://clinicapureslim.com.br');
+  h.set('Access-Control-Allow-Origin', CORS_ORIGIN);
   h.set('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
   h.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   return h;
 }
 
-export async function OPTIONS() {
+export function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: cors() });
 }
 
-// Normaliza unidade -> '1ml' | '2ml' | '5ml' | '10ml'
 function sanitizeUnit(v: unknown): '1ml' | '2ml' | '5ml' | '10ml' {
   const map = new Set(['1ml', '2ml', '5ml', '10ml']);
   const s = String(v ?? '').toLowerCase().replace(/\s+/g, '');
   return (map.has(s) ? (s as any) : '1ml');
 }
 
-// GET /api/assets  -> lista
-export async function GET() {
+// GET /api/assets
+export async function GET(req: NextRequest) {
   try {
-    const { data, error } = await supabaseAdmin
+    const url = new URL(req.url);
+    const q = url.searchParams.get('q')?.trim();
+
+    let query = supabaseAdmin
       .from('assets')
-      // Lê unit como COALESCE(unit2, unit)
-      .select(`
-        id,
-        name,
-        quantity,
-        laboratory,
-        unit2,
-        unit
-      `)
+      .select('id, name, quantity, laboratory, unit2, unit, expires_at')
       .order('id', { ascending: false });
 
+    if (q) {
+      query = query.ilike('name', `%${q}%`);
+    }
+
+    const { data, error } = await query;
     if (error) throw error;
 
     const list = (data ?? []).map((row: any) => ({
@@ -49,18 +47,16 @@ export async function GET() {
       quantity: row.quantity ?? 0,
       laboratory: row.laboratory ?? '',
       unit: (row.unit2 ?? row.unit ?? '1ml') as string,
+      expires_at: row.expires_at ?? null,
     }));
 
     return NextResponse.json(list, { headers: cors() });
   } catch (e: any) {
-    return NextResponse.json(
-      { error: e?.message ?? 'Erro ao listar' },
-      { status: 400, headers: cors() }
-    );
+    return NextResponse.json({ error: e?.message ?? 'Erro ao listar' }, { status: 400, headers: cors() });
   }
 }
 
-// POST /api/assets  -> cria
+// POST /api/assets
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -69,25 +65,24 @@ export async function POST(req: NextRequest) {
     const laboratory = String(body?.laboratory ?? '').trim();
     const quantity = Number(body?.quantity ?? 0) || 0;
     const unit = sanitizeUnit(body?.unit);
+    const expires_at = body?.expires_at ? String(body.expires_at) : null; // YYYY-MM-DD
 
     if (!name) {
-      return NextResponse.json(
-        { error: 'Nome é obrigatório' },
-        { status: 400, headers: cors() }
-      );
+      return NextResponse.json({ error: 'Nome é obrigatório' }, { status: 400, headers: cors() });
     }
 
-    const payload = {
+    const payload: any = {
       name,
       laboratory,
       quantity,
-      unit2: unit, // <— grava SOMENTE em unit2
+      unit2: unit,
+      ...(expires_at ? { expires_at } : {})
     };
 
     const { data, error } = await supabaseAdmin
       .from('assets')
       .insert([payload])
-      .select('id, name, quantity, laboratory, unit2')
+      .select('id, name, quantity, laboratory, unit2, expires_at')
       .single();
 
     if (error) throw error;
@@ -97,14 +92,12 @@ export async function POST(req: NextRequest) {
       name: data.name,
       quantity: data.quantity,
       laboratory: data.laboratory,
-      unit: data.unit2, // resposta consistente com o front
+      unit: data.unit2,
+      expires_at: data.expires_at ?? null,
     };
 
     return NextResponse.json(created, { status: 201, headers: cors() });
   } catch (e: any) {
-    return NextResponse.json(
-      { error: e?.message ?? 'Erro ao salvar' },
-      { status: 400, headers: cors() }
-    );
+    return NextResponse.json({ error: e?.message ?? 'Erro ao salvar' }, { status: 400, headers: cors() });
   }
 }
