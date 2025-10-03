@@ -1,55 +1,46 @@
-// app/api/docs/[docId]/signed/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET,OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-};
-
-const BUCKET = 'docs';
-
-export async function OPTIONS() {
-  return new NextResponse(null, { status: 204, headers: CORS_HEADERS });
-}
-
-/**
- * GET /api/docs/:docId/signed?download=1
- * Retorna { signedUrl }
- */
-export async function GET(req: NextRequest, { params }: { params: { docId: string } }) {
+// GET /api/docs/:docId/signed?download=1
+export async function GET(
+  req: NextRequest,
+  { params }: { params: { docId: string } }
+) {
   try {
-    const url = new URL(req.url);
-    const asDownload = url.searchParams.get('download') === '1';
-
     const { data: doc, error } = await supabaseAdmin
       .from('documents')
-      .select('storage_path, file_name')
+      .select('id, file_name, storage_path')
       .eq('id', params.docId)
       .single();
 
     if (error || !doc) {
-      return NextResponse.json({ error: 'Documento não encontrado' }, { status: 404, headers: CORS_HEADERS });
+      return NextResponse.json({ error: 'Documento não encontrado' }, { status: 404 });
     }
 
-    const seconds = 60 * 15; // 15 min
-    const signed = await supabaseAdmin
-      .storage
-      .from(BUCKET)
-      .createSignedUrl(doc.storage_path, seconds, {
+    const url = new URL(req.url);
+    const asDownload = url.searchParams.get('download') === '1';
+
+    // URL assinada por 15 minutos
+    const expiresIn = 60 * 15;
+    const { data: signed, error: signedErr } = await supabaseAdmin.storage
+      .from('docs')
+      .createSignedUrl(doc.storage_path, expiresIn, {
         download: asDownload ? doc.file_name : undefined,
       });
 
-    if (signed.error || !signed.data?.signedUrl) {
-      return NextResponse.json({ error: signed.error?.message ?? 'Falha ao assinar URL' }, { status: 400, headers: CORS_HEADERS });
+    if (signedErr || !signed?.signedUrl) {
+      return NextResponse.json({ error: signedErr?.message || 'Falha ao assinar' }, { status: 400 });
     }
 
-    return NextResponse.json({ signedUrl: signed.data.signedUrl }, { status: 200, headers: CORS_HEADERS });
+    return NextResponse.json({ signedUrl: signed.signedUrl }, { status: 200 });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? 'GET failed' }, { status: 500, headers: CORS_HEADERS });
+    return NextResponse.json({ error: e.message }, { status: 500 });
   }
+}
+
+export function OPTIONS() {
+  return NextResponse.json({}, { status: 200 });
 }
