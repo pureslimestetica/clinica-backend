@@ -1,6 +1,10 @@
 // app/api/treatments/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
+import { withCors, preflight } from "@/app/api/_utils/cors";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 type Item = { asset_id: string; quantity: number };
 
@@ -13,7 +17,6 @@ async function listWithItems(patientId: string) {
 
   if (error) throw new Error(error.message);
 
-  // pega itens em lote
   const ids = (treatments ?? []).map((t) => t.id);
   if (!ids.length) return [];
 
@@ -41,20 +44,27 @@ async function listWithItems(patientId: string) {
   }));
 }
 
+export async function OPTIONS() {
+  return preflight();
+}
+
 export async function GET(req: NextRequest) {
   try {
     const patientId = req.nextUrl.searchParams.get("patientId");
     if (!patientId) {
-      return NextResponse.json(
-        { error: "Parâmetro patientId é obrigatório" },
-        { status: 400 }
+      return withCors(
+        NextResponse.json(
+          { error: "Parâmetro patientId é obrigatório" },
+          { status: 400 }
+        )
       );
     }
-
     const list = await listWithItems(patientId);
-    return NextResponse.json(list);
+    return withCors(NextResponse.json(list));
   } catch (e: any) {
-    return NextResponse.json({ error: e.message || "Erro" }, { status: 500 });
+    return withCors(
+      NextResponse.json({ error: e.message || "Erro" }, { status: 500 })
+    );
   }
 }
 
@@ -62,14 +72,13 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
 
-    // Formatos aceitos (A/B/C). Normalizamos aqui:
     const patient_id =
       body.patient_id ?? body.patientId ?? body.patient ?? null;
-    if (!patient_id)
-      return NextResponse.json(
-        { error: "patient_id é obrigatório" },
-        { status: 400 }
+    if (!patient_id) {
+      return withCors(
+        NextResponse.json({ error: "patient_id é obrigatório" }, { status: 400 })
       );
+    }
 
     const date =
       body.date ||
@@ -87,13 +96,16 @@ export async function POST(req: NextRequest) {
       })) ??
       [];
 
-    if (!rawItems.length)
-      return NextResponse.json(
-        { error: "Informe pelo menos um item (asset_id, quantity)" },
-        { status: 400 }
+    if (!rawItems.length) {
+      return withCors(
+        NextResponse.json(
+          { error: "Informe pelo menos um item (asset_id, quantity)" },
+          { status: 400 }
+        )
       );
+    }
 
-    // 1) cria tratamento
+    // cria tratamento
     const { data: created, error: e1 } = await supabase
       .from("treatments")
       .insert([{ patient_id, date, value_paid, next_date }])
@@ -101,7 +113,7 @@ export async function POST(req: NextRequest) {
       .single();
     if (e1) throw new Error(e1.message);
 
-    // 2) insere itens
+    // itens
     const itemsToInsert = rawItems.map((it) => ({
       treatment_id: created.id,
       asset_id: it.asset_id,
@@ -112,7 +124,7 @@ export async function POST(req: NextRequest) {
       .insert(itemsToInsert);
     if (e2) throw new Error(e2.message);
 
-    // 3) baixa do estoque
+    // baixa de estoque
     for (const it of rawItems) {
       const { data: assetRow, error: eA } = await supabase
         .from("assets")
@@ -120,7 +132,10 @@ export async function POST(req: NextRequest) {
         .eq("id", it.asset_id)
         .single();
       if (eA) throw new Error(eA.message);
-      const newQty = Math.max(0, Number(assetRow.quantity ?? 0) - Number(it.quantity));
+      const newQty = Math.max(
+        0,
+        Number(assetRow?.quantity ?? 0) - Number(it.quantity)
+      );
       const { error: eU } = await supabase
         .from("assets")
         .update({ quantity: newQty })
@@ -128,15 +143,17 @@ export async function POST(req: NextRequest) {
       if (eU) throw new Error(eU.message);
     }
 
-    // 4) retorna com itens
-    const full = await listWithItems(patient_id);
-    const justCreated = full.find((t: any) => t.id === created.id) || created;
+    // retorna completo
+    const list = await listWithItems(patient_id);
+    const full = list.find((t: any) => t.id === created.id) || created;
 
-    return NextResponse.json(justCreated, { status: 201 });
+    return withCors(NextResponse.json(full, { status: 201 }));
   } catch (e: any) {
-    return NextResponse.json(
-      { error: e.message || "Erro ao criar tratamento" },
-      { status: 500 }
+    return withCors(
+      NextResponse.json(
+        { error: e.message || "Erro ao criar tratamento" },
+        { status: 500 }
+      )
     );
   }
 }
