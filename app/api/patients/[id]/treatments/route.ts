@@ -1,12 +1,13 @@
-// app/api/patients/[id]/treatments/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { withCors, preflight } from "@/app/api/_utils/cors";
+import { withCors, preflight } from "../../../../_utils/cors";
+import {
+  listTreatmentsWithItems,
+  createTreatmentAndDecreaseStock,
+  TreatmentItem,
+} from "../../../../_utils/treatments";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const BASE =
-  process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
 
 export function OPTIONS() {
   return preflight();
@@ -16,23 +17,61 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const res = await fetch(`${BASE}/api/treatments?patientId=${params.id}`, {
-    cache: "no-store",
-  });
-  const data = await res.json();
-  return withCors(NextResponse.json(data, { status: res.status }));
+  try {
+    const list = await listTreatmentsWithItems(params.id);
+    return withCors(NextResponse.json(list));
+  } catch (e: any) {
+    return withCors(
+      NextResponse.json({ error: e.message || "Erro ao listar" }, { status: 500 })
+    );
+  }
 }
 
 export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const body = await req.json();
-  const res = await fetch(`${BASE}/api/treatments`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...body, patient_id: params.id }),
-  });
-  const data = await res.json();
-  return withCors(NextResponse.json(data, { status: res.status }));
+  try {
+    const body = await req.json();
+
+    const date = (body.date || new Date().toISOString().slice(0, 10)) as string;
+    const value_paid = body.value_paid ?? body.value ?? null;
+    const next_date = body.next_date ?? body.next_application ?? null;
+
+    const items: TreatmentItem[] =
+      body.items ??
+      body.assets ??
+      body.lines?.map((l: any) => ({
+        asset_id: l.asset_id,
+        quantity: l.qty ?? l.quantity,
+      })) ??
+      [];
+
+    if (!Array.isArray(items) || !items.length) {
+      return withCors(
+        NextResponse.json(
+          { error: "Informe itens: [{ asset_id, quantity }]" },
+          { status: 400 }
+        )
+      );
+    }
+
+    const created = await createTreatmentAndDecreaseStock({
+      patient_id: params.id,
+      date,
+      value_paid,
+      next_date,
+      items,
+    });
+
+    const full = (await listTreatmentsWithItems(params.id)).find(
+      (t: any) => t.id === created.id
+    );
+
+    return withCors(NextResponse.json(full || created, { status: 201 }));
+  } catch (e: any) {
+    return withCors(
+      NextResponse.json({ error: e.message || "Erro ao criar" }, { status: 500 })
+    );
+  }
 }
